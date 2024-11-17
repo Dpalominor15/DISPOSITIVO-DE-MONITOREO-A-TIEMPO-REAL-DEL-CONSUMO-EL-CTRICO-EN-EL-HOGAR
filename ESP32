@@ -1,0 +1,94 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Incluye las librerías para los sensores
+#include <ZMPT101B.h>
+#include <ACS712.h>
+
+// Define los pines de los sensores
+#define VOLTAGE_SENSOR_PIN 34
+#define CURRENT_SENSOR_PIN 35
+
+// Crea instancias de los sensores
+ZMPT101B voltageSensor(VOLTAGE_SENSOR_PIN);
+ACS712 currentSensor(ACS712_20A, CURRENT_SENSOR_PIN);  // Especifica el tipo de sensor correctamente
+
+unsigned long timeRead = 0;
+
+//===WiFi definitions===
+const char* ssid = "ssid";
+const char* password = "pswd";
+const char* serverName = "script google";
+
+void setup() {
+  Serial.begin(115200);  // Inicializa la transmisión serial a 115200 baudios
+
+  // Inicializa los sensores
+  voltageSensor.init();
+  currentSensor.calibrate();  // Calibración del sensor de corriente
+
+  //===WiFi initialization===
+  initWifi();
+}
+
+void loop() {
+  if (millis() - timeRead > 60000) {  // Cambia a 60000 ms (1 minuto)
+    float voltage = voltageSensor.getVoltageAC();
+    float current = currentSensor.getCurrentAC();
+
+    Serial.print("Voltage: ");
+    Serial.print(voltage);
+    Serial.println(" V");
+    Serial.print("Current: ");
+    Serial.print(current);
+    Serial.println(" A");
+
+    sendToGoogleSheet(voltage, current);
+
+    timeRead = millis();
+  }
+}
+
+void initWifi() {
+  Serial.print("Connecting to: ");
+  Serial.print(ssid);
+
+  WiFi.begin(ssid, password);
+
+  int timeout = 10 * 4;  // 10 segundos
+  while (WiFi.status() != WL_CONNECTED && (timeout-- > 0)) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println("");
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Failed to connect");
+  } else {
+    Serial.print("WiFi connected with IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+}
+
+void sendToGoogleSheet(float voltage, float current) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverName);
+    http.addHeader("Content-Type", "application/json");
+
+    String jsonData = "{\"voltage\":\"" + String(voltage) + "\", \"current\":\"" + String(current) + "\"}";
+
+    int httpResponseCode = http.POST(jsonData);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+    } else {
+      Serial.print("Wrong request POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  }
+}
